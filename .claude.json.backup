@@ -45,5 +45,11 @@
       ],
       "exampleFilesGeneratedAt": 1768491660205
     }
+  },
+  "skillUsage": {
+    "supabase-integration": {
+      "usageCount": 1,
+      "lastUsedAt": 1768491665635
+    }
   }
 }
