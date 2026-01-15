@@ -17,11 +17,33 @@
     "persimmon_marble_flag": "N/A",
     "tengu_tool_pear": false,
     "tengu_thinkback": false,
-    "tengu_tool_search_unsupported_models": null
+    "tengu_tool_search_unsupported_models": null,
+    "tengu_ant_attribution_header_new": true
   },
   "userID": "986e707fd1bd00bc068c569af78bf07fef6f34b0035cecc387cf69498445a3d7",
   "firstStartTime": "2026-01-15T15:35:08.523Z",
   "sonnet45MigrationComplete": true,
   "opus45MigrationComplete": true,
-  "thinkingMigrationComplete": true
+  "thinkingMigrationComplete": true,
+  "projects": {
+    "/app": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": false,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "src/pages/Index.tsx",
+        "index.html",
+        "tailwind.config.ts",
+        "src/index.css",
+        "src/pages/Index.tsx"
+      ],
+      "exampleFilesGeneratedAt": 1768491660205
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
 
 interface Contact {
   name: string;
@@ -11,48 +12,91 @@ interface CheckInData {
   lastCheckIn: Date | null;
 }
 
-const STORAGE_KEY = "dead-yet-app-data";
+const DEVICE_ID_KEY = "dead-yet-device-id";
 
-const loadData = (): CheckInData => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return {
-        history: parsed.history.map((d: string) => new Date(d)),
-        contact: parsed.contact || { name: "", email: "" },
-        lastCheckIn: parsed.lastCheckIn ? new Date(parsed.lastCheckIn) : null,
-      };
-    }
-  } catch (e) {
-    console.error("Failed to load data:", e);
+// 获取或创建设备ID
+const getDeviceId = (): string => {
+  let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+  if (!deviceId) {
+    deviceId = `device-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    localStorage.setItem(DEVICE_ID_KEY, deviceId);
   }
-  return {
-    history: [],
-    contact: { name: "", email: "" },
-    lastCheckIn: null,
-  };
-};
-
-const saveData = (data: CheckInData) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      history: data.history.map(d => d.toISOString()),
-      contact: data.contact,
-      lastCheckIn: data.lastCheckIn?.toISOString() || null,
-    }));
-  } catch (e) {
-    console.error("Failed to save data:", e);
-  }
+  return deviceId;
 };
 
 export function useCheckIn() {
-  const [data, setData] = useState<CheckInData>(loadData);
+  const [data, setData] = useState<CheckInData>({
+    history: [],
+    contact: { name: "", email: "" },
+    lastCheckIn: null,
+  });
+  const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
+  // 初始化：获取或创建用户
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    const initUser = async () => {
+      const deviceId = getDeviceId();
+
+      try {
+        // 尝试获取现有用户
+        let { data: existingUser } = await supabase
+          .from("users")
+          .select("id")
+          .eq("device_id", deviceId)
+          .single();
+
+        let currentUserId: string;
+
+        if (!existingUser) {
+          // 创建新用户
+          const { data: newUser, error: createError } = await supabase
+            .from("users")
+            .insert({ device_id: deviceId })
+            .select("id")
+            .single();
+
+          if (createError) throw createError;
+          currentUserId = newUser.id;
+        } else {
+          currentUserId = existingUser.id;
+        }
+
+        setUserId(currentUserId);
+
+        // 加载签到历史
+        const { data: checkIns } = await supabase
+          .from("check_ins")
+          .select("checked_at")
+          .eq("user_id", currentUserId)
+          .order("checked_at", { ascending: false })
+          .limit(30);
+
+        // 加载紧急联系人
+        const { data: contactData } = await supabase
+          .from("emergency_contacts")
+          .select("name, email")
+          .eq("user_id", currentUserId)
+          .single();
+
+        const history = (checkIns || []).map((ci) => new Date(ci.checked_at));
+        const lastCheckIn = history.length > 0 ? history[0] : null;
+
+        setData({
+          history,
+          contact: contactData || { name: "", email: "" },
+          lastCheckIn,
+        });
+      } catch (error) {
+        console.error("Failed to initialize user:", error);
+      } finally {
+        setIsInitialized(true);
+      }
+    };
+
+    initUser();
+  }, []);
 
   const isCheckedInToday = useCallback(() => {
     if (!data.lastCheckIn) return false;
@@ -79,8 +123,8 @@ export function useCheckIn() {
   const getConsecutiveDays = useCallback(() => {
     if (data.history.length === 0) return 0;
 
-    const sortedHistory = [...data.history].sort((a, b) =>
-      new Date(b).getTime() - new Date(a).getTime()
+    const sortedHistory = [...data.history].sort(
+      (a, b) => new Date(b).getTime() - new Date(a).getTime()
     );
 
     let consecutive = 0;
@@ -97,7 +141,6 @@ export function useCheckIn() {
       if (checkDate.getTime() === expectedDate.getTime()) {
         consecutive++;
       } else if (i === 0 && checkDate.getTime() === today.getTime() - 86400000) {
-        // If last check-in was yesterday, start counting from yesterday
         const yesterdayExpected = new Date(today);
         yesterdayExpected.setDate(today.getDate() - 1 - i);
         if (checkDate.getTime() === yesterdayExpected.getTime()) {
@@ -112,29 +155,64 @@ export function useCheckIn() {
   }, [data.history]);
 
   const checkIn = useCallback(async () => {
-    if (isCheckedInToday()) return;
+    if (!userId || isCheckedInToday()) return;
 
     setIsLoading(true);
 
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      const now = new Date();
 
-    const now = new Date();
-    setData(prev => ({
-      ...prev,
-      history: [...prev.history, now],
-      lastCheckIn: now,
-    }));
+      const { error } = await supabase.from("check_ins").insert({
+        user_id: userId,
+        checked_at: now.toISOString(),
+      });
 
-    setIsLoading(false);
-  }, [isCheckedInToday]);
+      if (error) throw error;
 
-  const updateContact = useCallback((contact: Contact) => {
-    setData(prev => ({
-      ...prev,
-      contact,
-    }));
-  }, []);
+      setData((prev) => ({
+        ...prev,
+        history: [now, ...prev.history],
+        lastCheckIn: now,
+      }));
+    } catch (error) {
+      console.error("Failed to check in:", error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, isCheckedInToday]);
+
+  const updateContact = useCallback(
+    async (contact: Contact) => {
+      if (!userId) return;
+
+      try {
+        // Upsert emergency contact
+        const { error } = await supabase.from("emergency_contacts").upsert(
+          {
+            user_id: userId,
+            name: contact.name,
+            email: contact.email,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
+
+        if (error) throw error;
+
+        setData((prev) => ({
+          ...prev,
+          contact,
+        }));
+      } catch (error) {
+        console.error("Failed to update contact:", error);
+        throw error;
+      }
+    },
+    [userId]
+  );
 
   return {
     history: data.history,
@@ -143,7 +221,7 @@ export function useCheckIn() {
     isCheckedInToday: isCheckedInToday(),
     daysMissed: getDaysMissed(),
     consecutiveDays: getConsecutiveDays(),
-    isLoading,
+    isLoading: isLoading || !isInitialized,
     checkIn,
     updateContact,
   };
